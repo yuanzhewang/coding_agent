@@ -19,8 +19,8 @@ adds one layer to that loop.
 | 4b | `stage4b_agent.py` | Skills — progressive disclosure: catalog in the prompt, bodies loaded on demand (`skills/`) |
 | 4c | `stage4c_agent.py` | Memory — a file read at each turn + a `remember` tool; persists across restarts |
 | 4d | `stage4d_agent.py` | Compaction — summarize old turns when history grows, with a pair-safe cut |
-| 4e | _next_ | Heartbeat / autonomy |
-| 5 | _planned_ | Specialize: coding / research / assistant |
+| 4e | `stage4e_agent.py` | Heartbeat — scheduler + standing goal + memory bridge + `finish`; safe toolset |
+| 5 | _next_ | Specialize: coding / research / assistant |
 
 ## Setup
 
