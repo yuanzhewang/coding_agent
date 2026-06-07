@@ -14,3 +14,8 @@ env/
 .DS_Store
 .idea/
 .vscode/
+
+# Scratch space for poking at the agents — never committed.
+# Run experiments here (or have the agent write here) and they stay out of git.
+experiments/
+scratch/
