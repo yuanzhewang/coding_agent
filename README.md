@@ -18,7 +18,8 @@ adds one layer to that loop.
 | 4a | `stage4a_agent.py` | Subagents — the loop re-run with its own context, returning a summary |
 | 4b | `stage4b_agent.py` | Skills — progressive disclosure: catalog in the prompt, bodies loaded on demand (`skills/`) |
 | 4c | `stage4c_agent.py` | Memory — a file read at each turn + a `remember` tool; persists across restarts |
-| 4d–4e | _planned_ | Compaction, heartbeat |
+| 4d | `stage4d_agent.py` | Compaction — summarize old turns when history grows, with a pair-safe cut |
+| 4e | _next_ | Heartbeat / autonomy |
 | 5 | _planned_ | Specialize: coding / research / assistant |
 
 ## Setup
