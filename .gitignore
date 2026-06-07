@@ -22,3 +22,6 @@ scratch/
 
 # Runtime agent memory (Stage 4c) — state, not source
 agent_memory.md
+
+# Debug RPC log (Stage 3 debug mode) — runtime artifact
+rpc_debug.html

@@ -25,6 +25,11 @@ Run:
 Try:
     "read /tmp/notes.txt; if it doesn't exist, create it saying hello"
 and watch: read_file -> (is_error) -> write_file -> [Allow? y/N].
+
+Debug mode (default ON): every request/response to the LLM is logged to
+rpc_debug.html — a Sherlog-style inspector with a friendly rendered view plus
+raw JSON per call. Toggle in the REPL with `/debug on` | `/debug off`. The
+logger lives in rpc_logger.py and is reusable by the other stages.
 """
 
 import os
@@ -32,7 +37,10 @@ import subprocess
 
 import anthropic
 
+import rpc_logger   # 'Sherlog'-style inspector for LLM requests/responses
+
 MODEL = "claude-opus-4-8"
+MAX_TOKENS = 16000
 MAX_ITERATIONS = 25                       # safety guard on the loop
 REQUIRES_APPROVAL = {"write_file", "run_bash"}   # mutating tools -> gated
 
@@ -182,7 +190,7 @@ def run_turn(messages: list) -> None:
         # Stream the model's response, printing text deltas live.
         with client.messages.stream(
             model=MODEL,
-            max_tokens=16000,   # safe to raise now that we stream
+            max_tokens=MAX_TOKENS,   # safe to raise now that we stream
             system=SYSTEM,
             tools=TOOLS,
             messages=messages,
@@ -197,6 +205,15 @@ def run_turn(messages: list) -> None:
             if printed:
                 print()
             response = stream.get_final_message()
+
+        # Debug mode: record this request/response "RPC" to the HTML log. Capture
+        # the request BEFORE appending the response, so the snapshot is exactly
+        # what was sent. No-op when debug is off.
+        rpc_logger.record(
+            request={"model": MODEL, "max_tokens": MAX_TOKENS, "system": SYSTEM,
+                     "tools": TOOLS, "messages": messages},
+            response=response,
+        )
 
         # Same loop rules as before: append the full response, stop if no tools.
         messages.append({"role": "assistant", "content": response.content})
@@ -242,7 +259,12 @@ def run_turn(messages: list) -> None:
 # --- 4. REPL ---------------------------------------------------------------
 
 def main() -> None:
-    print("Stage 3 coding agent (streaming + gated). Type a request, or 'quit'.")
+    print("Stage 3 coding agent (streaming + gated).")
+    print(f"Debug mode is {'on' if rpc_logger.is_enabled() else 'off'} → "
+          f"logging RPCs to {rpc_logger.path()}")
+    print("Commands: /debug on | /debug off | quit")
+    if rpc_logger.is_enabled():
+        rpc_logger.flush()   # create the (initially empty) log page up front
     messages = []
     while True:
         try:
@@ -252,6 +274,18 @@ def main() -> None:
             break
         if user_input.lower() in {"quit", "exit"}:
             break
+        if user_input.lower().startswith("/debug"):
+            arg = user_input[len("/debug"):].strip().lower()
+            if arg in {"", "on"}:
+                rpc_logger.set_enabled(True)
+                rpc_logger.flush()
+                print(f"debug ON → {rpc_logger.path()}")
+            elif arg == "off":
+                rpc_logger.set_enabled(False)
+                print("debug OFF")
+            else:
+                print("usage: /debug [on|off]")
+            continue
         if not user_input:
             continue
         messages.append({"role": "user", "content": user_input})
