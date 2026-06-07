@@ -16,7 +16,8 @@ adds one layer to that loop.
 | 2 | `stage2_agent.py` | Dedicated `read_file` / `write_file` / `list_dir` tools (a real coding agent) |
 | 3 | `stage3_agent.py` | Streaming, error handling, permission gating, iteration cap |
 | 4a | `stage4a_agent.py` | Subagents — the loop re-run with its own context, returning a summary |
-| 4b–4e | _planned_ | Skills, memory, compaction, heartbeat |
+| 4b | `stage4b_agent.py` | Skills — progressive disclosure: catalog in the prompt, bodies loaded on demand (`skills/`) |
+| 4c–4e | _planned_ | Memory, compaction, heartbeat |
 | 5 | _planned_ | Specialize: coding / research / assistant |
 
 ## Setup
