@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Env / secrets — never commit your API key
+.env
+*.key
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
