@@ -15,7 +15,8 @@ adds one layer to that loop.
 | 1 | `stage1_agent.py` | The bare loop + one `run_bash` tool |
 | 2 | `stage2_agent.py` | Dedicated `read_file` / `write_file` / `list_dir` tools (a real coding agent) |
 | 3 | `stage3_agent.py` | Streaming, error handling, permission gating, iteration cap |
-| 4 | _next_ | The fancy layer: subagents, skills, memory, compaction, heartbeat |
+| 4a | `stage4a_agent.py` | Subagents — the loop re-run with its own context, returning a summary |
+| 4b–4e | _planned_ | Skills, memory, compaction, heartbeat |
 | 5 | _planned_ | Specialize: coding / research / assistant |
 
 ## Setup
