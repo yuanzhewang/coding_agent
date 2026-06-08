@@ -10,6 +10,11 @@ env/
 .env
 *.key
 
+# Google OAuth (Stage 5) — credentials.json is the app identity, token.json is a
+# key to your account. Never commit either.
+credentials.json
+token.json
+
 # OS / editor
 .DS_Store
 .idea/
