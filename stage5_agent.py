@@ -1,16 +1,20 @@
 """
-Stage 5: the agent reaches outside the machine — Google Workspace (Gmail).
+Stage 5: the agent reaches outside the machine — Google Workspace.
 
 Every tool until now was local: files, bash. The agent loop never cared, because
 a tool is just "a name, a JSON schema, and a function." Stage 5 proves that by
-adding tools that talk to Gmail over the network — same loop, same gating, same
-debug log. The genuinely new part lives in workspace_tools.py: OAuth 2.0, which
-is how Google decides to trust this process (see that file's docstring).
+adding tools that talk to Gmail, Calendar, and Drive over the network — same
+loop, same gating, same debug log. The genuinely new part lives in
+workspace_tools.py: OAuth 2.0, which is how Google decides to trust this process
+(see that file's docstring).
 
 What you get:
   - gmail_search / gmail_read         — read-only, run freely
   - gmail_create_draft                — writes an UN-sent draft (safe)
   - gmail_send                        — actually sends; GATED behind y/N
+  - calendar_list                     — read-only
+  - calendar_create_event             — writes a real event; GATED
+  - drive_search / drive_read         — read-only
   - the Stage 3 local toolset         — read/write/list files, run bash
   - the Sherlog-style debug log       — every LLM call, incl. these tool calls
 
@@ -21,7 +25,8 @@ Run:
     python stage5_agent.py
 Try:
     "what are my 3 most recent emails about?"
-    "draft a reply to the latest one thanking them"
+    "what's on my calendar this week?"
+    "find the doc named 'notes' in my Drive and summarize it"
 """
 
 import os
@@ -35,17 +40,23 @@ import workspace_tools   # Google Workspace (Gmail) tools + OAuth, from scratch
 MODEL = "claude-opus-4-8"
 MAX_TOKENS = 16000
 MAX_ITERATIONS = 25
-# Mutating tools -> gated. Local writes/bash, plus actually-sending mail.
-REQUIRES_APPROVAL = {"write_file", "run_bash"} | workspace_tools.GMAIL_GATED
+# Mutating tools -> gated. Local writes/bash, sending mail, creating events.
+REQUIRES_APPROVAL = ({"write_file", "run_bash"}
+                     | workspace_tools.GMAIL_GATED
+                     | workspace_tools.CALENDAR_GATED
+                     | workspace_tools.DRIVE_GATED)
 
 client = anthropic.Anthropic()
 
 SYSTEM = (
-    "You are a personal assistant with access to the user's Gmail and their "
-    "local filesystem. You can search and read mail, create drafts, and (only "
-    "when explicitly asked) send mail; you can also read, write, and list files "
-    "and run bash. Prefer gmail_create_draft over gmail_send unless the user "
-    "clearly says to send. Cite message ids when you reference emails. Be concise."
+    "You are a personal assistant with access to the user's Gmail, Google "
+    "Calendar, Google Drive, and their local filesystem. You can search/read "
+    "mail, create drafts, and (only when explicitly asked) send mail; list and "
+    "create calendar events; search and read Drive files; and read, write, and "
+    "list local files and run bash. Prefer gmail_create_draft over gmail_send "
+    "unless the user clearly says to send. Cite ids when you reference emails, "
+    "events, or files. Today's date is available via bash if you need it. "
+    "Be concise."
 )
 
 
@@ -131,14 +142,20 @@ LOCAL_TOOLS = [
     },
 ]
 
-# Compose the full toolset: local + Gmail. The loop treats them identically.
-TOOLS = LOCAL_TOOLS + workspace_tools.GMAIL_TOOLS
+# Compose the full toolset: local + Gmail + Calendar + Drive. The loop treats
+# them all identically — a tool is just a name, a schema, and a function.
+TOOLS = (LOCAL_TOOLS
+         + workspace_tools.GMAIL_TOOLS
+         + workspace_tools.CALENDAR_TOOLS
+         + workspace_tools.DRIVE_TOOLS)
 DISPATCH = {
     "read_file": read_file,
     "write_file": write_file,
     "list_dir": list_dir,
     "run_bash": run_bash,
     **workspace_tools.GMAIL_DISPATCH,
+    **workspace_tools.CALENDAR_DISPATCH,
+    **workspace_tools.DRIVE_DISPATCH,
 }
 
 
@@ -160,6 +177,14 @@ def format_tool_call(name: str, tool_input: dict) -> str:
     if name in ("gmail_create_draft", "gmail_send"):
         verb = "draft" if name == "gmail_create_draft" else "SEND"
         return f"gmail {verb} → {tool_input.get('to', '?')}: {tool_input.get('subject', '')}"
+    if name == "calendar_list":
+        return f"calendar_list: {tool_input.get('time_min', 'now')}..{tool_input.get('time_max', '')}"
+    if name == "calendar_create_event":
+        return f"calendar create → {tool_input.get('summary', '')} @ {tool_input.get('start', '')}"
+    if name == "drive_search":
+        return f"drive_search: {tool_input['query']}"
+    if name == "drive_read":
+        return f"drive_read: {tool_input['file_id']}"
     return f"{name}: {tool_input}"
 
 
@@ -179,6 +204,11 @@ def confirm(name: str, tool_input: dict) -> bool:
         print("   ── body ──")
         for line in tool_input.get("body", "")[:500].splitlines():
             print(f"   | {line}")
+    if name == "calendar_create_event":
+        print(f"   title: {tool_input.get('summary', '')}")
+        print(f"   start: {tool_input.get('start', '')}  end: {tool_input.get('end', '')}")
+        if tool_input.get("location"):
+            print(f"   where: {tool_input['location']}")
     try:
         answer = input("   Allow? [y/N] ").strip().lower()
     except EOFError:

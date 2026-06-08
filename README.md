@@ -20,7 +20,7 @@ adds one layer to that loop.
 | 4c | `stage4c_agent.py` | Memory — a file read at each turn + a `remember` tool; persists across restarts |
 | 4d | `stage4d_agent.py` | Compaction — summarize old turns when history grows, with a pair-safe cut |
 | 4e | `stage4e_agent.py` | Heartbeat — scheduler + standing goal + memory bridge + `finish`; safe toolset |
-| 5 | `stage5_agent.py` | Reaches outside the machine — Gmail tools over OAuth 2.0 (`workspace_tools.py`) |
+| 5 | `stage5_agent.py` | Reaches outside the machine — Gmail / Calendar / Drive over OAuth 2.0 (`workspace_tools.py`) |
 
 ## Setup
 
@@ -39,9 +39,10 @@ pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib
 ```
 
 In the [Google Cloud Console](https://console.cloud.google.com): create a
-project → enable the **Gmail API** → configure the **OAuth consent screen**
-(External, add yourself as a *test user*) → create an **OAuth client ID** of type
-**Desktop app** → download the JSON as `credentials.json` in this directory.
+project → enable the **Gmail API**, **Google Calendar API**, and **Google Drive
+API** → configure the **OAuth consent screen** (External, add yourself as a
+*test user*) → create an **OAuth client ID** of type **Desktop app** → download
+the JSON as `credentials.json` in this directory.
 
 Then mint a token (opens a browser once; needs a machine with a browser):
 

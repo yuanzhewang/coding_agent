@@ -25,6 +25,7 @@ Run stage5_auth_check.py once to perform the consent flow and verify it works.
 
 import base64
 import os.path
+from datetime import datetime, timezone
 from email.message import EmailMessage
 
 from google.auth.transport.requests import Request
@@ -35,11 +36,15 @@ from googleapiclient.discovery import build
 # Capability boundary. Each entry becomes a permission you must approve on
 # Google's consent screen. Least privilege, but batched: changing this list
 # invalidates token.json, so we request everything the tools below need at once.
-#   gmail.readonly : search + read existing mail
-#   gmail.compose  : create drafts AND send (compose implies send)
+#   gmail.readonly  : search + read existing mail
+#   gmail.compose   : create drafts AND send (compose implies send)
+#   calendar.events : read AND create/edit events
+#   drive.readonly  : search + read/export files (no writes)
 SCOPES = [
     "https://www.googleapis.com/auth/gmail.readonly",
     "https://www.googleapis.com/auth/gmail.compose",
+    "https://www.googleapis.com/auth/calendar.events",
+    "https://www.googleapis.com/auth/drive.readonly",
 ]
 
 CREDENTIALS_FILE = "credentials.json"   # the app's identity, from Cloud Console
@@ -234,6 +239,175 @@ GMAIL_TOOLS = [
                 "body": {"type": "string", "description": "Plain-text body."},
             },
             "required": ["to", "subject", "body"],
+        },
+    },
+]
+
+
+# --- Calendar tools --------------------------------------------------------
+
+def calendar_list(time_min: str = "", time_max: str = "", max_results: int = 10) -> str:
+    """List upcoming events on the primary calendar. Times are RFC3339 strings."""
+    svc = get_service("calendar", "v3")
+    params = {
+        "calendarId": "primary",
+        "maxResults": max_results,
+        "singleEvents": True,        # expand recurring events into instances
+        "orderBy": "startTime",
+        "timeMin": time_min or datetime.now(timezone.utc).isoformat(),
+    }
+    if time_max:
+        params["timeMax"] = time_max
+    items = svc.events().list(**params).execute().get("items", [])
+    if not items:
+        return "No events in that range."
+    lines = []
+    for e in items:
+        start = e["start"].get("dateTime", e["start"].get("date", "?"))
+        lines.append(f'[{e["id"]}] {start} | {e.get("summary", "(no title)")}')
+    return "\n".join(lines)
+
+
+def calendar_create_event(summary: str, start: str, end: str,
+                          description: str = "", location: str = "",
+                          time_zone: str = "UTC") -> str:
+    """Create a timed event on the primary calendar. Gated by the harness."""
+    svc = get_service("calendar", "v3")
+    body = {
+        "summary": summary,
+        "description": description,
+        "location": location,
+        "start": {"dateTime": start, "timeZone": time_zone},
+        "end": {"dateTime": end, "timeZone": time_zone},
+    }
+    ev = svc.events().insert(calendarId="primary", body=body).execute()
+    return f"Event created: {ev.get('htmlLink', ev['id'])}"
+
+
+# --- Drive tools (read-only) -----------------------------------------------
+
+# Google-native formats can't be downloaded directly; they must be exported to a
+# concrete type. Everything else (txt, pdf, csv…) downloads as-is.
+_DRIVE_EXPORT = {
+    "application/vnd.google-apps.document": "text/plain",
+    "application/vnd.google-apps.spreadsheet": "text/csv",
+    "application/vnd.google-apps.presentation": "text/plain",
+}
+
+
+def drive_search(query: str, max_results: int = 10) -> str:
+    """Search Drive with Drive query syntax, e.g. "name contains 'budget'" or
+    "mimeType='application/pdf'" or "fullText contains 'invoice'"."""
+    svc = get_service("drive", "v3")
+    resp = svc.files().list(
+        q=query, pageSize=max_results,
+        fields="files(id,name,mimeType,modifiedTime)").execute()
+    files = resp.get("files", [])
+    if not files:
+        return "No files matched."
+    return "\n".join(
+        f'[{f["id"]}] {f["name"]} ({f["mimeType"]}) {f.get("modifiedTime", "")}'
+        for f in files)
+
+
+def drive_read(file_id: str) -> str:
+    """Read a Drive file's text content (exports Google Docs/Sheets to text)."""
+    svc = get_service("drive", "v3")
+    meta = svc.files().get(fileId=file_id, fields="id,name,mimeType").execute()
+    mime = meta["mimeType"]
+    if mime in _DRIVE_EXPORT:
+        data = svc.files().export(fileId=file_id, mimeType=_DRIVE_EXPORT[mime]).execute()
+    else:
+        data = svc.files().get_media(fileId=file_id).execute()
+    text = data.decode("utf-8", "replace") if isinstance(data, bytes) else str(data)
+    if len(text) > 5000:
+        text = text[:5000] + "\n… (truncated)"
+    return f"{meta['name']} ({mime})\n\n{text or '(no text content)'}"
+
+
+# --- Calendar / Drive exports ----------------------------------------------
+
+CALENDAR_DISPATCH = {
+    "calendar_list": calendar_list,
+    "calendar_create_event": calendar_create_event,
+}
+CALENDAR_GATED = {"calendar_create_event"}
+
+CALENDAR_TOOLS = [
+    {
+        "name": "calendar_list",
+        "description": (
+            "List upcoming events on the user's primary calendar. Optionally bound "
+            "by time_min/time_max (RFC3339, e.g. '2026-06-08T00:00:00Z'). Defaults "
+            "to events from now onward."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "time_min": {"type": "string", "description": "RFC3339 lower bound. Default now."},
+                "time_max": {"type": "string", "description": "RFC3339 upper bound."},
+                "max_results": {"type": "integer", "description": "Max events. Default 10."},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "calendar_create_event",
+        "description": (
+            "Create a timed event on the primary calendar. Times are RFC3339 "
+            "datetimes. This writes to the user's real calendar — the user must "
+            "confirm before it runs."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "summary": {"type": "string", "description": "Event title."},
+                "start": {"type": "string", "description": "Start, RFC3339 (e.g. '2026-06-10T15:00:00')."},
+                "end": {"type": "string", "description": "End, RFC3339."},
+                "description": {"type": "string", "description": "Optional details."},
+                "location": {"type": "string", "description": "Optional location."},
+                "time_zone": {"type": "string", "description": "IANA tz, e.g. 'America/New_York'. Default UTC."},
+            },
+            "required": ["summary", "start", "end"],
+        },
+    },
+]
+
+DRIVE_DISPATCH = {
+    "drive_search": drive_search,
+    "drive_read": drive_read,
+}
+DRIVE_GATED = set()   # read-only
+
+DRIVE_TOOLS = [
+    {
+        "name": "drive_search",
+        "description": (
+            "Search the user's Google Drive using Drive query syntax. Examples: "
+            "\"name contains 'budget'\", \"mimeType='application/pdf'\", "
+            "\"fullText contains 'invoice'\". Returns id, name, type, modified time."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Drive query string."},
+                "max_results": {"type": "integer", "description": "Max files. Default 10."},
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "drive_read",
+        "description": (
+            "Read a Drive file's text content by id (Google Docs/Sheets are "
+            "exported to text/CSV). Large files are truncated."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "file_id": {"type": "string", "description": "Drive file id (from drive_search)."},
+            },
+            "required": ["file_id"],
         },
     },
 ]
